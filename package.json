@@ -10,33 +10,28 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "@types/cheerio": "0.22.35",
+    "@types/node": "20.11.24",
+    "@types/node-fetch": "2.6.11",
+    "@types/react": "18.2.61",
+    "@types/react-dom": "18.2.19",
     "@upstash/redis": "^1.34.3",
     "autoprefixer": "^10.4.18",
     "chart.js": "^4.4.7",
     "cheerio": "^1.0.0",
     "csv-parse": "^5.6.0",
+    "eslint": "8.57.0",
+    "eslint-config-next": "15.0.4",
     "groq-sdk": "^0.9.0",
     "lucide-react": "^0.468.0",
-    "next": "^15.1.0",
+    "next": "15.1.0",
     "pdfjs-dist": "^4.9.155",
     "postcss": "^8.4.35",
     "puppeteer": "^23.10.3",
-    "react": "^19.0.0",
+    "react": "18.2.0",
     "react-chartjs-2": "^5.2.0",
-    "react-dom": "^19.0.0",
-    "tailwindcss": "^3.4.1"
-  },
-  "devDependencies": {
-    "@types/cheerio": "^0.22.35",
-    "@types/node": "^20.11.24",
-    "@types/node-fetch": "^2.6.11",
-    "@types/react": "^18.2.61",
-    "@types/react-dom": "^18.2.19",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "15.0.4",
-    "typescript": "^5.3.3"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "react-dom": "18.2.0",
+    "tailwindcss": "^3.4.1",
+    "typescript": "5.3.3"
   }
 }
