@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Share2, Menu, X, Plus, MessageSquare, Loader2, ChevronRight, ChevronLeft } from "lucide-react";
-import DataChart from "@/components/DataChart";
+import DataChart from "../components/DataChart";
 import type { Message, Conversation } from "../types";
 import { extractUrls, generateTitle } from "../lib/utils";
 
