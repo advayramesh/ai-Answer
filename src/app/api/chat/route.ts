@@ -6,28 +6,39 @@
 import { NextResponse } from 'next/server';
 import { Groq } from "groq-sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import * as cheerio from "cheerio";
 import { Redis } from "@upstash/redis";
-import { truncateText } from "../../../lib/utils";            // Use relative path
-import { extractPDF, extractCSV, extractArticle } from "../../../lib/extractors";
-import type { ContentResult } from "../../../types";
+import { truncateText } from "@/lib/utils";
+import { extractPDF, extractCSV, extractArticle } from "@/lib/extractors";
+import type { ContentResult } from "@/types"
+
 // Constants
 const MAX_CONTENT_LENGTH = 4000;
 const CACHE_TTL = 60 * 60 * 24; // 24 hours
 
-// Redis setup
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+// Redis setup with proper environment variable check
+const redis = (() => {
+  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  
+  if (!redisUrl?.startsWith('https://') || !redisToken) {
+    console.warn('Redis not properly configured');
+    return null;
+  }
 
-// Cache helpers
+  return new Redis({
+    url: redisUrl,
+    token: redisToken,
+  });
+})();
+
+// Cache helpers with proper null handling
 async function getCachedContent(url: string): Promise<ContentResult | null> {
+  if (!redis) return null;
+  
   try {
     const cachedData = await redis.get(`content:${url}`);
     if (!cachedData) return null;
     
-    // Handle both string and object cache formats
     if (typeof cachedData === 'string') {
       try {
         return JSON.parse(cachedData);
@@ -42,47 +53,44 @@ async function getCachedContent(url: string): Promise<ContentResult | null> {
   }
 }
 
-async function cacheContent(url: string, content: ContentResult) {
+async function cacheContent(url: string, content: ContentResult): Promise<void> {
+  if (!redis) return;
+  
   try {
-    const stringifiedContent = JSON.stringify(content);
-    await redis.set(`content:${url}`, stringifiedContent, { ex: CACHE_TTL });
+    await redis.set(`content:${url}`, JSON.stringify(content), { ex: CACHE_TTL });
   } catch (error) {
     console.error('Cache error:', error);
   }
 }
 
-// Content extraction
+// Content extraction with proper error handling
 async function extractContent(url: string): Promise<ContentResult> {
-  const cachedContent = await getCachedContent(url);
-  if (cachedContent) return cachedContent;
+  if (redis) {
+    const cachedContent = await getCachedContent(url);
+    if (cachedContent) return cachedContent;
+  }
 
   try {
-    let content = '';
     const fileType = url.split('.').pop()?.toLowerCase();
+    let content = '';
 
-    if (fileType === 'pdf') {
-      content = await extractPDF(url);
-    } else if (fileType === 'csv') {
-      content = await extractCSV(url);
-    } else {
-      content = await extractArticle(url);
+    switch(fileType) {
+      case 'pdf':
+        content = await extractPDF(url);
+        break;
+      case 'csv':
+        content = await extractCSV(url);
+        break;
+      default:
+        content = await extractArticle(url);
     }
 
-    // Truncate content to avoid rate limits
     content = truncateText(content, MAX_CONTENT_LENGTH);
 
     const result: ContentResult = {
       content,
-      visualizationData: fileType === 'csv' ? {
-        type: 'line',
-        data: JSON.parse(content)
-      } : undefined
+      visualizationData: fileType === 'csv' ? await processCSVData(content) : undefined
     };
-
-    const chartData = content.includes(',') ? detectChartableData(content) : null;
-    if (chartData) {
-      result.visualizationData = chartData;
-    }
 
     await cacheContent(url, result);
     return result;
@@ -92,14 +100,32 @@ async function extractContent(url: string): Promise<ContentResult> {
   }
 }
 
-// Model responses
+// Process CSV data with proper error handling
+async function processCSVData(content: string) {
+  try {
+    return {
+      type: 'line' as const,
+      data: JSON.parse(content)
+    };
+  } catch (error) {
+    console.error('Error processing CSV data:', error);
+    return undefined;
+  }
+}
+
+// Model responses with proper error handling
 async function getGroqResponse(message: string, context: string): Promise<string> {
-  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY is not configured');
+  }
+
+  const groq = new Groq({ apiKey });
   const truncatedContext = truncateText(context, MAX_CONTENT_LENGTH);
 
   const systemPrompt = truncatedContext 
-    ? `You are a helpful AI assistant. Answer based on this context. Be concise but informative:\n\n${truncatedContext}`
-    : `You are a helpful AI assistant. Be concise but informative.`;
+    ? `You are a helpful AI assistant. Answer based on this context:\n\n${truncatedContext}`
+    : `You are a helpful AI assistant.`;
 
   try {
     const completion = await groq.chat.completions.create({
@@ -115,15 +141,19 @@ async function getGroqResponse(message: string, context: string): Promise<string
     return completion.choices[0]?.message?.content || "Sorry, I couldn't generate a response.";
   } catch (error: any) {
     if (error?.status === 413) {
-      return "Sorry, the content is too long. Please try with a shorter text or break your request into smaller parts.";
+      return "Sorry, the content is too long. Please try with a shorter text.";
     }
-    console.error('Groq error:', error);
     throw error;
   }
 }
 
 async function getGeminiResponse(message: string, context: string): Promise<string> {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
   const prompt = context 
@@ -139,18 +169,53 @@ async function getGeminiResponse(message: string, context: string): Promise<stri
   }
 }
 
-async function generateSuggestions(context: string, message: string, answer: string): Promise<string[]> {
-  if (!process.env.GROQ_API_KEY) return [];
+// Helper functions for cleaner code organization
+async function processUrls(urls: string[]) {
+  let context = '';
+  const validSources: string[] = [];
+  const visualizations: any[] = [];
 
-  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  const prompt = `Based on this conversation:
+  for (const url of urls) {
+    try {
+      const result = await extractContent(url);
+      if (result.content) {
+        context += result.content + '\n\n';
+        validSources.push(url);
+        if (result.visualizationData) {
+          visualizations.push(result.visualizationData);
+        }
+      }
+    } catch (error) {
+      console.error(`Error processing ${url}:`, error);
+    }
+  }
+
+  return { context, validSources, visualizations };
+}
+
+async function getAIResponse(
+  message: string, 
+  context: { context: string; validSources: string[]; visualizations: any[] }, 
+  model: "groq" | "gemini"
+): Promise<string> {
+  return model === "groq"
+    ? await getGroqResponse(message, context.context)
+    : await getGeminiResponse(message, context.context);
+}
+
+async function generateSuggestions(context: string, message: string, answer: string): Promise<string[]> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const groq = new Groq({ apiKey });
+    const prompt = `Based on this conversation:
 Q: ${message}
 A: ${answer}
 ${context ? `\nContext: ${context.slice(0, 500)}...` : ''}
 
-Generate 3 relevant follow-up questions that would help explore this topic further. Make them concise and specific.`;
+Generate 3 relevant follow-up questions that would help explore this topic further.`;
 
-  try {
     const completion = await groq.chat.completions.create({
       messages: [{ role: "user", content: prompt }],
       model: "mixtral-8x7b-32768",
@@ -168,108 +233,40 @@ Generate 3 relevant follow-up questions that would help explore this topic furth
   }
 }
 
-// Chart detection
-type ChartData = {
-  type: 'line' | 'bar';
-  data: Record<string, any>[];
-};
-
-function detectChartableData(content: string): ChartData | null {
-  try {
-    // Look for different data patterns
-    const lines = content.split('\n').map(line => line.trim()).filter(Boolean);
-    if (lines.length < 3) return null; // Need at least header + 2 rows
-
-    // Try different delimiters
-    const delimiters = [',', '\t', '|'];
-    let bestDelimiter = ',';
-    let maxColumns = 0;
-
-    // Find the best delimiter
-    for (const delimiter of delimiters) {
-      const columns = lines[0]?.split(delimiter)?.length || 0;
-      if (columns > maxColumns) {
-        maxColumns = columns;
-        bestDelimiter = delimiter;
-      }
-    }
-
-    const headers = lines[0]?.split(bestDelimiter)?.map(h => h.trim()) || [];
-    const data: Record<string, any>[] = [];
-
-    // Process each line
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i]?.split(bestDelimiter)?.map(v => v.trim()) || [];
-      if (values.length === headers.length) {
-        const row: Record<string, any> = {};
-        values.forEach((value, index) => {
-          const header = headers[index];
-          if (header) {
-            row[header] = value;
-          }
-        });
-        data.push(row);
-      }
-    }
-
-    if (data.length >= 2) {
-      const type = data.length > 10 ? 'line' : 'bar';
-      return { type, data };
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Error detecting chartable data:', error);
-    return null;
-  }
-}
-
-// Main POST handler
-export const runtime = 'edge'; // Optional: Use edge runtime
+// Main POST handler with proper error handling
+export const runtime = 'edge';
 
 export async function POST(req: Request) {
   try {
-    const { message, urls = [], model = "groq" } = await req.json();
+    const body = await req.json();
+    const { message, urls = [], model = "groq" } = body;
 
     if (!message?.trim()) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    let context = '';
-    const validSources: string[] = [];
-    const visualizations: ChartData[] = [];
-
-    // Process URLs for additional content
-    for (const url of urls) {
-      try {
-        const result = await extractContent(url);
-        if (result.content) {
-          context += result.content + '\n\n';
-          validSources.push(url);
-          if (result.visualizationData) {
-            visualizations.push(result.visualizationData);
-          }
-        }
-      } catch (error) {
-        console.error(`Error processing ${url}:`, error);
-      }
+    // Check environment variables early
+    if (model === "groq" && !process.env.GROQ_API_KEY) {
+      return NextResponse.json({ error: 'Groq API not configured' }, { status: 503 });
+    }
+    if (model === "gemini" && !process.env.GEMINI_API_KEY) {
+      return NextResponse.json({ error: 'Gemini API not configured' }, { status: 503 });
     }
 
-    // Get AI response based on selected model
-    const response = model === "groq"
-      ? await getGroqResponse(message, context)
-      : await getGeminiResponse(message, context);
-
-    const suggestions = await generateSuggestions(context, message, response);
+    const context = await processUrls(urls);
+    const response = await getAIResponse(message, context, model);
+    const suggestions = await generateSuggestions(context.context, message, response);
 
     return NextResponse.json({
       content: response,
       suggestions,
-      sources: validSources,
-      visualizations,
+      sources: context.validSources,
+      visualizations: context.visualizations,
     });
   } catch (error) {
     console.error('POST error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Internal Server Error' 
+    }, { status: 500 });
   }
 }

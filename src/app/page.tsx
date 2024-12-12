@@ -416,29 +416,34 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Suggestions */}
-          {suggestions.length > 0 && (
-            <div className="fixed bottom-[120px] w-full bg-gray-900/60 backdrop-blur-xl py-3 z-20
-              border-t border-white/5 shadow-lg shadow-black/30">
-              <div className="max-w-5xl mx-auto flex items-center justify-center gap-2 px-4">
-                {suggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    className="px-4 py-2 bg-gray-800/30 hover:bg-gray-700/50 rounded-full text-sm text-gray-200
-                      transition-all hover:scale-[1.02] active:scale-[0.98] border border-white/10
-                      backdrop-blur-sm hover:border-cyan-500/30 shadow-lg shadow-black/20
-                      hover:shadow-cyan-900/20"
-                  >
-                    {suggestion.length > 40 ? suggestion.substring(0, 37) + '...' : suggestion}
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                      {suggestion}
-                    </span>
-                  </button>
-                ))}
-              </div>
+{/* Suggestions */}
+{suggestions.length > 0 && (
+  <div className="fixed bottom-[120px] w-full bg-gray-900/60 backdrop-blur-xl py-3 z-20
+    border-t border-white/5 shadow-lg shadow-black/30">
+    <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-2 px-4">
+      {suggestions.map((suggestion, index) => (
+        <div key={index} className="group relative">
+          <button
+            onClick={() => handleSuggestionClick(suggestion)}
+            className="px-4 py-2 bg-gray-800/30 hover:bg-gray-700/50 rounded-full text-sm text-gray-200
+              transition-all hover:scale-[1.02] active:scale-[0.98] border border-white/10
+              backdrop-blur-sm hover:border-cyan-500/30 shadow-lg shadow-black/20
+              hover:shadow-cyan-900/20"
+          >
+            {suggestion.length > 40 ? suggestion.substring(0, 37) + '...' : suggestion}
+          </button>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 invisible 
+            group-hover:visible transition-all opacity-0 group-hover:opacity-100 z-50">
+            <div className="bg-gray-900 px-4 py-2 rounded-lg shadow-xl border border-gray-700
+              text-sm text-gray-200 max-w-md whitespace-normal">
+              {suggestion}
             </div>
-          )}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
 
           {/* Input Area */}
           <div className="fixed bottom-0 w-full bg-gray-900/40 backdrop-blur-xl border-t border-white/5 p-6
