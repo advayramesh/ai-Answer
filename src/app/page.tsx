@@ -56,7 +56,7 @@ export default function Home() {
     } else {
       setConversations([currentConversation]);
     }
-  }, []);
+  }, [currentConversation]);
 
   // Save conversations
   useEffect(() => {

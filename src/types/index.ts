@@ -5,10 +5,7 @@ export type Message = {
     content: string;
     sources?: string[];
     model?: "groq" | "gemini";
-    visualizations?: Array<{
-      type: 'line' | 'bar';
-      data: Record<string, any>[];
-    }>;
+    visualizations?: ChartData[];
   };
   
   export type Conversation = {
@@ -28,7 +25,9 @@ export type Message = {
     };
   };
   
-  export type ChartData = {
+  export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+  export interface ChartData {
     type: 'line' | 'bar';
-    data: Record<string, any>[];
-  };
+    data: Record<string, JsonValue>[];
+  }
