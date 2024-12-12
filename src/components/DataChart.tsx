@@ -43,15 +43,18 @@ export default function DataChart({ type, data }: ChartData) {
   if (!data || data.length === 0) return null;
 
   // Get numeric and label keys from data
-  const numericKeys = Object.keys(data[0]).filter(key => 
-    typeof data[0][key] === 'number'
-  );
+  const numericKeys = data[0] ? Object.keys(data[0]).filter(key => 
+    typeof data[0]?.[key] === 'number'
+  ) : [];
 
-  const labelKey = Object.keys(data[0]).find(key => 
-    typeof data[0][key] === 'string'
-  ) || numericKeys[0];
+  const labelKey = data[0] ? Object.keys(data[0]).find(key => 
+    typeof data[0]?.[key] === 'string'
+  ) : numericKeys[0];
 
-  const labels = data.map(item => item[labelKey]?.toString() || '');
+  const labels = data.map(item => {
+    const label = labelKey ? item[labelKey] : undefined;
+    return label?.toString() || '';
+  });
 
   // Generate datasets with gradients
   const datasets = numericKeys.map((key, index) => {

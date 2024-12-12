@@ -37,34 +37,29 @@ export function detectChartableData(content: string): {
     let maxColumns = 0;
 
     for (const delimiter of delimiters) {
-      const columns = lines[0].split(delimiter).length;
+      const columns = lines[0]?.split(delimiter)?.length || 0;
       if (columns > maxColumns) {
         maxColumns = columns;
         bestDelimiter = delimiter;
       }
     }
 
-    const headers = lines[0].split(bestDelimiter).map(h => h.trim());
-    const data = [];
+    const headers = lines[0]?.split(bestDelimiter)?.map(h => h.trim()) || [];
+    const data: Record<string, any>[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(bestDelimiter).map(v => v.trim());
+      const values = lines[i]?.split(bestDelimiter)?.map(v => v.trim()) || [];
       if (values.length === headers.length) {
         const row: Record<string, any> = {};
-        let hasNumericValue = false;
-
-        headers.forEach((header, index) => {
-          const value = values[index].replace(/[,$%]/g, '');
-          const numValue = parseFloat(value);
-          if (!isNaN(numValue)) {
-            row[header] = numValue;
-            hasNumericValue = true;
-          } else {
-            row[header] = values[index];
+        values.forEach((value, index) => {
+          const header = headers[index];
+          if (header) {
+            row[header] = isNaN(Number(value)) ? value : Number(value);
           }
         });
-
-        if (hasNumericValue) data.push(row);
+        if (Object.keys(row).length > 0) {
+          data.push(row);
+        }
       }
     }
 
@@ -237,7 +232,7 @@ async function crawlHierarchically(
       
       // Extract links
       const links = new Set<string>();
-      $('a[href]').each((_, el) => {
+      $('a[href]').each((_index: number, el: Element) => {
         const href = $(el).attr('href');
         if (href && !href.startsWith('#')) {
           const fullUrl = new URL(href, url).toString();

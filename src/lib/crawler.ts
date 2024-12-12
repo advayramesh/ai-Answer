@@ -1,6 +1,5 @@
-// lib/crawler.ts
-
 import * as cheerio from 'cheerio';
+import { Element } from 'cheerio';
 
 const MAX_DEPTH = 2;
 const MAX_PAGES = 10;
@@ -59,7 +58,7 @@ export class WebCrawler {
       const links: string[] = [];
       const mediaLinks: string[] = [];
 
-      $('a').each((_, element) => {
+      $('a').each((_index: number, element: Element) => {
         const href = $(element).attr('href');
         if (href && !href.startsWith('#')) {
           const normalizedUrl = this.normalizeUrl(href);
@@ -70,7 +69,7 @@ export class WebCrawler {
       });
 
       // Extract media links
-      $('img, video, audio, source').each((_, element) => {
+      $('img, video, audio, source').each((_index: number, element: Element) => {
         const src = $(element).attr('src');
         if (src) {
           const normalizedUrl = this.normalizeUrl(src);
@@ -97,7 +96,10 @@ export class WebCrawler {
       this.queue.length > 0 && 
       this.results.length < MAX_PAGES
     ) {
-      const { url, depth } = this.queue.shift()!;
+      const current = this.queue.shift();
+      if (!current) break;
+      
+      const { url, depth } = current;
       
       if (this.visited.has(url)) continue;
       this.visited.add(url);

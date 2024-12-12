@@ -24,17 +24,22 @@ export function detectChartableData(content: string) {
 
     if (lines.length < 2) return null;
 
-    const headers = lines[0].split(/[,\t|]/).map(h => h.trim());
-    const data = [];
+    const headers = lines[0]?.split(/[,\t|]/)?.map(h => h.trim()) || [];
+    const data: Record<string, any>[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const cells = lines[i].split(/[,\t|]/).map(cell => cell.trim());
+      const cells = lines[i]?.split(/[,\t|]/)?.map(cell => cell.trim()) || [];
       if (cells.length === headers.length) {
         const row: Record<string, any> = {};
         cells.forEach((cell, index) => {
-          row[headers[index]] = isNaN(Number(cell)) ? cell : Number(cell);
+          const header = headers[index];
+          if (header) {
+            row[header] = isNaN(Number(cell)) ? cell : Number(cell);
+          }
         });
-        data.push(row);
+        if (Object.keys(row).length > 0) {
+          data.push(row);
+        }
       }
     }
 

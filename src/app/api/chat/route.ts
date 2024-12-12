@@ -187,38 +187,28 @@ function detectChartableData(content: string): ChartData | null {
 
     // Find the best delimiter
     for (const delimiter of delimiters) {
-      const columns = lines[0].split(delimiter).length;
+      const columns = lines[0]?.split(delimiter)?.length || 0;
       if (columns > maxColumns) {
         maxColumns = columns;
         bestDelimiter = delimiter;
       }
     }
 
-    const headers = lines[0].split(bestDelimiter).map(h => h.trim());
+    const headers = lines[0]?.split(bestDelimiter)?.map(h => h.trim()) || [];
     const data: Record<string, any>[] = [];
 
     // Process each line
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(bestDelimiter).map(v => v.trim());
+      const values = lines[i]?.split(bestDelimiter)?.map(v => v.trim()) || [];
       if (values.length === headers.length) {
         const row: Record<string, any> = {};
-        let hasNumericValue = false;
-
-        headers.forEach((header, index) => {
-          // Clean and convert values
-          const value = values[index].replace(/[,$%]/g, '');
-          const numValue = parseFloat(value);
-          if (!isNaN(numValue)) {
-            row[header] = numValue;
-            hasNumericValue = true;
-          } else {
-            row[header] = values[index];
+        values.forEach((value, index) => {
+          const header = headers[index];
+          if (header) {
+            row[header] = value;
           }
         });
-
-        if (hasNumericValue) {
-          data.push(row);
-        }
+        data.push(row);
       }
     }
 
@@ -246,8 +236,8 @@ export async function POST(req: Request) {
     }
 
     let context = '';
-    let validSources: string[] = [];
-    let visualizations: ChartData[] = [];
+    const validSources: string[] = [];
+    const visualizations: ChartData[] = [];
 
     // Process URLs for additional content
     for (const url of urls) {

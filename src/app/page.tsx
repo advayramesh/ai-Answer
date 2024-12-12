@@ -227,7 +227,7 @@ export default function Home() {
     if (!content) return "New Chat";
     
     // Extract the first line and clean URLs
-    const cleanText = content.split('\n')[0].replace(/https?:\/\/[^\s]+/g, '').trim();
+    const cleanText = content?.split('\n')[0]?.replace(/https?:\/\/[^\s]+/g, '').trim() || content || '';
     
     // If it's too short, use the whole text
     if (cleanText.length < 5) return content.slice(0, 40);
@@ -238,7 +238,7 @@ export default function Home() {
       .replace(/^(analyze|summarize|explain|tell me about|what is|how to|create|generate)\s+/i, '');
     
     // Take the first meaningful part
-    const title = cleanedText.split(/[.,?!]/)[0].trim();
+    const title = cleanedText?.split(/[.,?!]/)[0]?.trim() || '';
     
     return title.slice(0, 40) || "New Chat";
   };
@@ -285,7 +285,7 @@ export default function Home() {
                   <MessageSquare size={16} className="shrink-0" />
                   <div className="flex-1 truncate">
                     {sidebarOpen ? (conv.title === "New Chat" 
-                      ? generateChatTitle(conv.messages[1]?.content)
+                      ? generateChatTitle(conv.messages[1]?.content || '')
                       : conv.title) : ""}
                   </div>
                 </div>
@@ -310,7 +310,7 @@ export default function Home() {
             <div className="max-w-3xl mx-auto flex items-center justify-between">
               <h1 className="text-xl font-semibold text-white">
                 {currentConversation.title === "New Chat" 
-                  ? generateChatTitle(currentConversation.messages[1]?.content)
+                  ? generateChatTitle(currentConversation.messages[1]?.content || '')
                   : currentConversation.title}
                 <span className="text-sm text-gray-400 ml-2">
                   via {selectedModel}
@@ -487,10 +487,9 @@ export default function Home() {
         </div>
 
         {/* Right Sidebar for Current Response's Embedded Content */}
-        {currentConversation.messages[currentConversation.messages.length - 1]?.sources && 
-         currentConversation.messages[currentConversation.messages.length - 1].sources!.length > 0 && (
+        {currentConversation.messages[currentConversation.messages.length - 1]?.sources?.length && (
           <div className="w-[500px] border-l border-gray-700 bg-gray-800 overflow-y-auto">
-            {currentConversation.messages[currentConversation.messages.length - 1].sources!.map((source, sourceIdx) => (
+            {currentConversation.messages[currentConversation.messages.length - 1]?.sources?.map((source, sourceIdx) => (
               <div key={sourceIdx} className="p-4 border-b border-gray-700">
                 <h3 className="text-sm text-gray-400 mb-2">Source {sourceIdx + 1}</h3>
                 {source.endsWith('.pdf') ? (
