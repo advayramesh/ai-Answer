@@ -1,18 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['tailwindcss'],
+    serverExternalPackages: ['puppeteer', 'puppeteer-core'], // Updated from serverComponentsExternalPackages
   },
-  webpack: (config) => {
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      fs: false,
-      net: false,
-      tls: false,
-      'pdfjs-dist': false,
-    };
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
     return config;
   },
 }
 
-export default nextConfig; 
+export default nextConfig;
