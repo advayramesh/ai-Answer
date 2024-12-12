@@ -8,21 +8,20 @@ const RATE_LIMIT_REQUESTS = 50;
 const RATE_LIMIT_WINDOW = 60 * 60; // 1 hour
 
 async function redisRequest(endpoint: string, options: RequestInit = {}) {
-  const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-  const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
   
-  if (!REDIS_URL || !REDIS_TOKEN) {
-    console.warn('Redis credentials not found, rate limiting disabled');
+  if (!redisUrl?.startsWith('https://') || !redisToken) {
+    console.warn('Redis credentials not found or invalid, rate limiting disabled');
     return null;
   }
 
   try {
-    // Ensure we're using the actual URL, not the variable name
-    const response = await fetch(`${REDIS_URL}${endpoint}`, {
+    const response = await fetch(`${redisUrl}${endpoint}`, {
       ...options,
       headers: {
         ...options.headers,
-        Authorization: `Bearer ${REDIS_TOKEN}`,
+        Authorization: `Bearer ${redisToken}`,
       },
     });
 
@@ -42,13 +41,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = process.env;
-  
-  if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
-    console.warn('Rate limiting is disabled (Redis not configured)');
-    return NextResponse.next();
-  }
-
   try {
     const ip = request.headers.get('x-real-ip') ?? 
                request.headers.get('x-forwarded-for')?.split(',')[0] ?? 
@@ -56,6 +48,12 @@ export async function middleware(request: NextRequest) {
 
     const ratelimitKey = `ratelimit:${ip}`;
     const countData = await redisRequest(`/get/${ratelimitKey}`);
+    
+    // If Redis is not available, allow the request
+    if (!countData) {
+      return NextResponse.next();
+    }
+
     const currentCount = countData?.result ? parseInt(countData.result) : 0;
 
     if (currentCount >= RATE_LIMIT_REQUESTS) {
@@ -84,8 +82,10 @@ export async function middleware(request: NextRequest) {
     response.headers.set('X-RateLimit-Remaining', (RATE_LIMIT_REQUESTS - currentCount - 1).toString());
 
     return response;
+
   } catch (error) {
     console.error('Rate limiting error:', error);
+    // If rate limiting fails, still allow the request
     return NextResponse.next();
   }
 }

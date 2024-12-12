@@ -13,9 +13,9 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [currentConversation, setCurrentConversation] = useState<Conversation>({
     id: Math.random().toString(36).substring(7),
-    messages: [{ 
-      role: "ai", 
-      content: "Hello! You can ask me questions or paste a URL to analyze content. For example:\n- 'Summarize this article: [URL]'\n- 'Create a chart from this data'\n- 'Analyze trends in: [URL]'" 
+    messages: [{
+      role: "ai",
+      content: "Hello! You can ask me questions or paste a URL to analyze content. For example:\n- 'Summarize this article: [URL]'\n- 'Create a chart from this data'\n- 'Analyze trends in: [URL]'"
     }],
     createdAt: new Date(),
     title: "New Chat"
@@ -31,6 +31,8 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout>();
 
   // Load conversations with expiration check
   useEffect(() => {
@@ -119,8 +121,15 @@ export default function Home() {
     setSuggestions([]);
   };
 
-  const handleSend = async () => {
-    if (!message.trim()) return;
+
+const handleSend = async () => {
+  if (!message.trim() || isSubmitting) return;
+
+  try {
+    setIsSubmitting(true);
+    setIsLoading(true);
+    setError(null);
+    setSuggestions([]);
 
     const updatedConv = {
       ...currentConversation,
@@ -136,80 +145,76 @@ export default function Home() {
 
     setCurrentConversation(updatedConv);
     setMessage("");
-    setError(null);
-    setIsLoading(true);
-    setSuggestions([]);
 
-    try {
-      const urls = extractUrls(message);
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          message,
-          urls,
-          model: selectedModel,
-          conversationId: currentConversation.id
-        }),
-      });
-
-      // Check if response is ok first
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Try to parse the response as JSON
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        throw new Error('Failed to parse server response');
-      }
-      
-      const finalConv = {
-        ...updatedConv,
-        messages: [
-          ...updatedConv.messages,
-          {
-            role: "ai",
-            content: data.content,
-            sources: data.sources,
-            model: selectedModel,
-            visualizations: data.visualizations
-          } as Message
-        ]
-      };
-
-      setCurrentConversation(finalConv);
-      setConversations(prev => {
-        const exists = prev.some(conv => conv.id === finalConv.id);
-        if (exists) {
-          return prev.map(conv => conv.id === finalConv.id ? finalConv : conv);
-        } else {
-          return [finalConv, ...prev];
-        }
-      });
-
-      if (data.suggestions?.length) {
-        setSuggestions(data.suggestions);
-      }
-
-    } catch (error) {
-      console.error("Error:", error);
-      setError(error instanceof Error ? error.message : "An error occurred");
-      
-      // Rollback the conversation state
-      setCurrentConversation(prev => ({
-        ...prev,
-        messages: prev.messages.slice(0, -1)
-      }));
-
-    } finally {
-      setIsLoading(false);
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
     }
-  };
+
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ 
+        message,
+        urls: extractUrls(message),
+        model: selectedModel,
+        conversationId: currentConversation.id
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    const finalConv = {
+      ...updatedConv,
+      messages: [
+        ...updatedConv.messages,
+        {
+          role: "ai",
+          content: data.content,
+          sources: data.sources,
+          model: selectedModel,
+          visualizations: data.visualizations
+        } as Message
+      ]
+    };
+
+    setCurrentConversation(finalConv);
+    setConversations(prev => 
+      prev.map(conv => 
+        conv.id === finalConv.id ? finalConv : conv
+      )
+    );
+
+    if (data.suggestions?.length) {
+      // Add slight delay for suggestions to improve UX
+      timeoutRef.current = setTimeout(() => {
+        setSuggestions(data.suggestions);
+      }, 500);
+    }
+
+  } catch (error) {
+    console.error("Error:", error);
+    setError(error instanceof Error ? error.message : "An error occurred");
+    
+    // Rollback the conversation state
+    setCurrentConversation(prev => ({
+      ...prev,
+      messages: prev.messages.slice(0, -1)
+    }));
+
+  } finally {
+    setIsLoading(false);
+    setIsSubmitting(false);
+  }
+};
+
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -225,21 +230,21 @@ export default function Home() {
 
   const generateChatTitle = (content: string) => {
     if (!content) return "New Chat";
-    
+
     // Extract the first line and clean URLs
     const cleanText = content?.split('\n')[0]?.replace(/https?:\/\/[^\s]+/g, '').trim() || content || '';
-    
+
     // If it's too short, use the whole text
     if (cleanText.length < 5) return content.slice(0, 40);
-    
+
     // Remove common action words if they're at the start
     const cleanedText = cleanText
       .replace(/^(please\s+|can you\s+|could you\s+|i want to\s+|help me\s+)/i, '')
       .replace(/^(analyze|summarize|explain|tell me about|what is|how to|create|generate)\s+/i, '');
-    
+
     // Take the first meaningful part
     const title = cleanedText?.split(/[.,?!]/)[0]?.trim() || '';
-    
+
     return title.slice(0, 40) || "New Chat";
   };
 
@@ -264,8 +269,8 @@ export default function Home() {
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="absolute -right-3 top-14 p-1 bg-gray-800 border border-gray-700 rounded-full hover:bg-gray-700 transition-all"
           >
-            {sidebarOpen ? 
-              <ChevronLeft size={14} className="stroke-[2.5]" /> : 
+            {sidebarOpen ?
+              <ChevronLeft size={14} className="stroke-[2.5]" /> :
               <ChevronRight size={14} className="stroke-[2.5]" />
             }
           </button>
@@ -277,14 +282,14 @@ export default function Home() {
                 className={`w-full text-left p-3 rounded-xl mb-2 transition-all duration-200
                   hover:bg-cyan-500/10 hover:border-cyan-500/20 hover:scale-[1.02] active:scale-[0.98]
                   group border border-transparent backdrop-blur-sm
-                  ${currentConversation.id === conv.id 
-                    ? 'bg-cyan-950/40 border-cyan-500/20 text-white shadow-lg shadow-cyan-950/20' 
+                  ${currentConversation.id === conv.id
+                    ? 'bg-cyan-950/40 border-cyan-500/20 text-white shadow-lg shadow-cyan-950/20'
                     : 'text-gray-300'}`}
               >
                 <div className="flex items-center gap-2">
                   <MessageSquare size={16} className="shrink-0" />
                   <div className="flex-1 truncate">
-                    {sidebarOpen ? (conv.title === "New Chat" 
+                    {sidebarOpen ? (conv.title === "New Chat"
                       ? generateChatTitle(conv.messages[1]?.content || '')
                       : conv.title) : ""}
                   </div>
@@ -309,7 +314,7 @@ export default function Home() {
             shadow-lg shadow-black/20">
             <div className="max-w-3xl mx-auto flex items-center justify-between">
               <h1 className="text-xl font-semibold text-white">
-                {currentConversation.title === "New Chat" 
+                {currentConversation.title === "New Chat"
                   ? generateChatTitle(currentConversation.messages[1]?.content || '')
                   : currentConversation.title}
                 <span className="text-sm text-gray-400 ml-2">
@@ -348,18 +353,16 @@ export default function Home() {
               {currentConversation.messages.map((msg, index) => (
                 <div
                   key={index}
-                  className={`flex gap-4 mb-4 ${
-                    msg.role === "ai"
-                      ? "justify-start"
-                      : "justify-end flex-row-reverse"
-                  } animate-fadeIn`}
+                  className={`flex gap-4 mb-4 ${msg.role === "ai"
+                    ? "justify-start"
+                    : "justify-end flex-row-reverse"
+                    } animate-fadeIn`}
                 >
                   <div
-                    className={`px-6 py-4 rounded-2xl backdrop-blur-sm shadow-lg ${
-                      msg.role === "ai"
-                        ? "bg-gray-900/40 border border-white/10 text-gray-100 max-w-[95%] shadow-black/20"
-                        : "bg-cyan-600/20 text-white ml-auto max-w-[95%] border border-cyan-500/20 shadow-cyan-900/30"
-                    }`}
+                    className={`px-6 py-4 rounded-2xl backdrop-blur-sm shadow-lg ${msg.role === "ai"
+                      ? "bg-gray-900/40 border border-white/10 text-gray-100 max-w-[95%] shadow-black/20"
+                      : "bg-cyan-600/20 text-white ml-auto max-w-[95%] border border-cyan-500/20 shadow-cyan-900/30"
+                      }`}
                   >
                     <div className="whitespace-pre-wrap break-words">
                       {msg.content}
@@ -416,34 +419,34 @@ export default function Home() {
             </div>
           </div>
 
-{/* Suggestions */}
-{suggestions.length > 0 && (
-  <div className="fixed bottom-[120px] w-full bg-gray-900/60 backdrop-blur-xl py-3 z-20
+          {/* Suggestions */}
+          {suggestions.length > 0 && (
+            <div className="fixed bottom-[120px] w-full bg-gray-900/60 backdrop-blur-xl py-3 z-20
     border-t border-white/5 shadow-lg shadow-black/30">
-    <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-2 px-4">
-      {suggestions.map((suggestion, index) => (
-        <div key={index} className="group relative">
-          <button
-            onClick={() => handleSuggestionClick(suggestion)}
-            className="px-4 py-2 bg-gray-800/30 hover:bg-gray-700/50 rounded-full text-sm text-gray-200
+              <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-2 px-4">
+                {suggestions.map((suggestion, index) => (
+                  <div key={index} className="group relative">
+                    <button
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="px-4 py-2 bg-gray-800/30 hover:bg-gray-700/50 rounded-full text-sm text-gray-200
               transition-all hover:scale-[1.02] active:scale-[0.98] border border-white/10
               backdrop-blur-sm hover:border-cyan-500/30 shadow-lg shadow-black/20
               hover:shadow-cyan-900/20"
-          >
-            {suggestion.length > 40 ? suggestion.substring(0, 37) + '...' : suggestion}
-          </button>
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 invisible 
+                    >
+                      {suggestion.length > 40 ? suggestion.substring(0, 37) + '...' : suggestion}
+                    </button>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 invisible 
             group-hover:visible transition-all opacity-0 group-hover:opacity-100 z-50">
-            <div className="bg-gray-900 px-4 py-2 rounded-lg shadow-xl border border-gray-700
+                      <div className="bg-gray-900 px-4 py-2 rounded-lg shadow-xl border border-gray-700
               text-sm text-gray-200 max-w-md whitespace-normal">
-              {suggestion}
+                        {suggestion}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
+          )}
 
           {/* Input Area */}
           <div className="fixed bottom-0 w-full bg-gray-900/40 backdrop-blur-xl border-t border-white/5 p-6
@@ -463,13 +466,13 @@ export default function Home() {
                 />
                 <button
                   onClick={handleSend}
-                  disabled={isLoading || !message.trim()}
-                  className="bg-cyan-600/80 hover:bg-cyan-700/80 text-white px-6 py-3 rounded-xl transition-all
-                    disabled:bg-gray-700/50 disabled:opacity-50 disabled:cursor-not-allowed h-[52px]
-                    flex items-center gap-2 backdrop-blur-sm shadow-lg shadow-cyan-900/30
-                    hover:shadow-cyan-900/50 hover:scale-[1.02] active:scale-[0.98]"
+                  disabled={isLoading || isSubmitting || !message.trim()}
+                  className="bg-cyan-600/80 hover:bg-cyan-700/80 text-white px-6 py-3 rounded-xl 
+        transition-all disabled:bg-gray-700/50 disabled:opacity-50 disabled:cursor-not-allowed 
+         h-[52px] flex items-center gap-2 backdrop-blur-sm shadow-lg shadow-cyan-900/30
+            hover:shadow-cyan-900/50 hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  {isLoading ? (
+                  {isLoading || isSubmitting ? (
                     <>
                       <Loader2 size={20} className="animate-spin" />
                       Sending
@@ -498,7 +501,7 @@ export default function Home() {
               <div key={sourceIdx} className="p-4 border-b border-gray-700">
                 <h3 className="text-sm text-gray-400 mb-2">Source {sourceIdx + 1}</h3>
                 {source.endsWith('.pdf') ? (
-                  <iframe 
+                  <iframe
                     src={`${source}#view=FitH`}
                     className="w-full h-[600px] rounded-lg border border-gray-700"
                     title={`Source ${sourceIdx + 1}`}
