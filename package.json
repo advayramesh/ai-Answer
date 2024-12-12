@@ -21,6 +21,7 @@
     "next": "^15.1.0",
     "pdfjs-dist": "^4.9.155",
     "postcss": "^8.4.35",
+    "postcss-import": "^16.1.0",
     "prettier": "^3.4.2",
     "puppeteer": "^23.10.3",
     "puppeteer-core": "^23.10.3",
@@ -31,7 +32,7 @@
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.35",
-    "@types/node": "^20.11.24",
+    "@types/node": "20.11.24",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
