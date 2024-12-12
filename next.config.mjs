@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
+const config = {
   experimental: {
-    serverExternalPackages: ['puppeteer', 'puppeteer-core'], // Updated from serverComponentsExternalPackages
+    // Remove serverExternalPackages as it's not recognized in Next.js 15
+    // Instead, use webpack config to handle external packages
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {
@@ -16,4 +17,4 @@ const nextConfig = {
   },
 }
 
-export default nextConfig;
+export default config;
