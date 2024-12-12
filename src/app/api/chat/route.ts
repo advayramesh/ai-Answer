@@ -8,10 +8,9 @@ import { Groq } from "groq-sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as cheerio from "cheerio";
 import { Redis } from "@upstash/redis";
-import { truncateText } from "@/lib/utils";
-import { extractPDF, extractCSV, extractArticle } from "@/lib/extractors";
-import type { ContentResult } from "@/types";
-
+import { truncateText } from "../../../lib/utils";            // Use relative path
+import { extractPDF, extractCSV, extractArticle } from "../../../lib/extractors";
+import type { ContentResult } from "../../../types";
 // Constants
 const MAX_CONTENT_LENGTH = 4000;
 const CACHE_TTL = 60 * 60 * 24; // 24 hours
