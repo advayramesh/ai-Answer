@@ -121,99 +121,92 @@ export default function Home() {
     setSuggestions([]);
   };
 
-
-const handleSend = async () => {
-  if (!message.trim() || isSubmitting) return;
-
-  try {
-    setIsSubmitting(true);
-    setIsLoading(true);
-    setError(null);
-    setSuggestions([]);
-
-    const updatedConv = {
-      ...currentConversation,
-      messages: [
-        ...currentConversation.messages,
-        { 
-          role: "user",
-          content: message,
-          model: selectedModel,
-        } as Message
-      ]
-    };
-
-    setCurrentConversation(updatedConv);
-    setMessage("");
-
-    // Clear any existing timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ 
+  const handleSend = async () => {
+    if (!message.trim() || isSubmitting) return;
+  
+    try {
+      console.log('Starting request...');
+      setIsSubmitting(true);
+      setIsLoading(true);
+      setError(null);
+      setSuggestions([]);
+  
+      // Create updatedConv first
+      const updatedConv = {
+        ...currentConversation,
+        messages: [
+          ...currentConversation.messages,
+          { 
+            role: "user",
+            content: message,
+            model: selectedModel,
+          } as Message
+        ]
+      };
+  
+      // Update conversation with user message first
+      setCurrentConversation(updatedConv);
+      setMessage("");
+  
+      const payload = { 
         message,
         urls: extractUrls(message),
         model: selectedModel,
         conversationId: currentConversation.id
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      };
+      console.log('Sending payload:', payload);
+  
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+  
+      console.log('Response received:', response.status);
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
+  
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}, body: ${responseText}`);
+      }
+  
+      const data = JSON.parse(responseText);
+      console.log('Parsed data:', data);
+      
+      const finalConv = {
+        ...updatedConv,
+        messages: [
+          ...updatedConv.messages,
+          {
+            role: "ai",
+            content: data.content,
+            sources: data.sources,
+            model: selectedModel,
+            visualizations: data.visualizations
+          } as Message
+        ]
+      };
+  
+      console.log('Updating conversation with:', finalConv);
+      setCurrentConversation(finalConv);
+  
+    } catch (error) {
+      console.error("Error in handleSend:", error);
+      setError(error instanceof Error ? error.message : "An error occurred");
+      
+      setCurrentConversation(prev => ({
+        ...prev,
+        messages: prev.messages.slice(0, -1)
+      }));
+  
+    } finally {
+      console.log('Request completed');
+      setIsLoading(false);
+      setIsSubmitting(false);
     }
-
-    const data = await response.json();
-    
-    const finalConv = {
-      ...updatedConv,
-      messages: [
-        ...updatedConv.messages,
-        {
-          role: "ai",
-          content: data.content,
-          sources: data.sources,
-          model: selectedModel,
-          visualizations: data.visualizations
-        } as Message
-      ]
-    };
-
-    setCurrentConversation(finalConv);
-    setConversations(prev => 
-      prev.map(conv => 
-        conv.id === finalConv.id ? finalConv : conv
-      )
-    );
-
-    if (data.suggestions?.length) {
-      // Add slight delay for suggestions to improve UX
-      timeoutRef.current = setTimeout(() => {
-        setSuggestions(data.suggestions);
-      }, 500);
-    }
-
-  } catch (error) {
-    console.error("Error:", error);
-    setError(error instanceof Error ? error.message : "An error occurred");
-    
-    // Rollback the conversation state
-    setCurrentConversation(prev => ({
-      ...prev,
-      messages: prev.messages.slice(0, -1)
-    }));
-
-  } finally {
-    setIsLoading(false);
-    setIsSubmitting(false);
-  }
-};
-
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

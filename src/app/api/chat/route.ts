@@ -236,6 +236,13 @@ Generate 3 relevant follow-up questions that would help explore this topic furth
 // Main POST handler with proper error handling
 export const runtime = 'edge';
 
+export async function GET() {
+  return NextResponse.json(
+    { error: 'Method not allowed' },
+    { status: 405 }
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
