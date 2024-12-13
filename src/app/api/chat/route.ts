@@ -248,20 +248,47 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { message, urls = [], model = "groq" } = body;
 
-    console.log('Environment check:');
-    console.log('GROQ_API_KEY length:', process.env.GROQ_API_KEY?.length);
-    console.log('GROQ_API_KEY prefix:', process.env.GROQ_API_KEY?.substring(0, 4));
-    console.log('Selected model:', model);
+    // More detailed environment debugging
+    console.log('Detailed environment check:');
+    console.log('Environment variables present:', {
+      GROQ_KEY_EXISTS: !!process.env.GROQ_API_KEY,
+      GROQ_KEY_LENGTH: process.env.GROQ_API_KEY?.length || 0,
+      GROQ_KEY_PREFIX: process.env.GROQ_API_KEY?.substring(0, 4) || 'none',
+      GEMINI_KEY_EXISTS: !!process.env.GEMINI_API_KEY,
+      GEMINI_KEY_LENGTH: process.env.GEMINI_API_KEY?.length || 0,
+      GEMINI_KEY_PREFIX: process.env.GEMINI_API_KEY?.substring(0, 6) || 'none',
+      SELECTED_MODEL: model
+    });
+
     if (!message?.trim()) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    // Check environment variables early
-    if (model === "groq" && !process.env.GROQ_API_KEY) {
-      return NextResponse.json({ error: 'Groq API not configured' }, { status: 503 });
-    }
-    if (model === "gemini" && !process.env.GEMINI_API_KEY) {
-      return NextResponse.json({ error: 'Gemini API not configured' }, { status: 503 });
+    try {
+      // Test direct API key validation before any other operations
+      if (model === "groq") {
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' });
+        // Test the API key with a minimal request
+        await groq.chat.completions.create({
+          messages: [{ role: "user", content: "test" }],
+          model: "mixtral-8x7b-32768",
+          max_tokens: 10,
+        });
+        console.log('Groq API key validated successfully');
+      }
+
+      if (model === "gemini") {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        // Test the API key with a minimal request
+        await model.generateContent("test");
+        console.log('Gemini API key validated successfully');
+      }
+    } catch (apiError) {
+      console.error('API key validation error:', apiError);
+      return NextResponse.json({ 
+        error: `API key validation failed: ${apiError instanceof Error ? apiError.message : 'Unknown error'}` 
+      }, { status: 503 });
     }
 
     const context = await processUrls(urls);
@@ -276,8 +303,8 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error('POST error:', error);
-    return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Internal Server Error' 
-    }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error('Error details:', errorMessage);
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
