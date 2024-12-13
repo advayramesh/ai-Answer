@@ -241,13 +241,17 @@ export async function GET() {
     { error: 'Method not allowed' },
     { status: 405 }
   );
-}
+} 
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { message, urls = [], model = "groq" } = body;
 
+    console.log('Environment check:');
+    console.log('GROQ_API_KEY length:', process.env.GROQ_API_KEY?.length);
+    console.log('GROQ_API_KEY prefix:', process.env.GROQ_API_KEY?.substring(0, 4));
+    console.log('Selected model:', model);
     if (!message?.trim()) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }

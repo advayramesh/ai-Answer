@@ -10,6 +10,11 @@ const RATE_LIMIT_WINDOW = 60 * 60; // 1 hour
 async function redisRequest(endpoint: string, options: RequestInit = {}) {
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  console.log('Redis config check:');
+  console.log('Redis URL exists:', !!redisUrl);
+  console.log('Redis URL starts with https:', redisUrl?.startsWith('https://'));
+  console.log('Redis token exists:', !!redisToken);
   
   if (!redisUrl?.startsWith('https://') || !redisToken) {
     console.warn('Redis credentials not found or invalid, rate limiting disabled');
