@@ -16,6 +16,7 @@ An AI-powered chat application that can analyze content from various sources inc
 - 📎 Link sharing capabilities
 - 🎨 Modern, responsive UI with dark mode
 
+
 ## Prerequisites
 
 - Node.js 18.x or later
