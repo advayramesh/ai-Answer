@@ -22,6 +22,7 @@ An AI-powered chat application that can analyze content from various sources inc
 - npm 9.x or later
 - Git
 
+
 ### Required API Keys
 You'll need to obtain the following API keys:
 - Groq API key from [Groq](https://console.groq.com)
