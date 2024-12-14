@@ -4,6 +4,7 @@ import * as cheerio from 'cheerio';
 import * as pdfjsLib from 'pdfjs-dist';
 import { parse } from 'csv-parse/sync';
 import type { ContentResult } from '@/types';
+import { truncateText } from "@/lib/utils";
 
 const MAX_CONTENT_LENGTH = 8000;
 
@@ -77,96 +78,304 @@ export function detectChartableData(content: string): {
   }
 }
 
-async function extractVideoContent(url: string): Promise<string> {
+export async function extractVideoContent(url: string): Promise<string> {
   try {
+    // Extensive logging
+    console.log('YouTube Video Extraction Started', {
+      url,
+      youtubeApiKey: process.env.YOUTUBE_API_KEY ? 'Present' : 'Missing',
+      apiKeyPrefix: process.env.YOUTUBE_API_KEY?.substring(0, 6)
+    });
+
     // Extract video ID from various YouTube URL formats
     const videoId = url.match(
       /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/
     )?.[1];
 
+    console.log('Extracted Video ID:', videoId);
+
     if (!videoId) {
-      throw new Error('Invalid YouTube URL');
+      throw new Error('Invalid YouTube URL: Could not extract video ID');
     }
 
-    // Try YouTube API first if key exists
-    if (process.env.YOUTUBE_API_KEY) {
-      const apiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${process.env.YOUTUBE_API_KEY}&part=snippet,contentDetails,statistics`;
-      
-      const response = await fetch(apiUrl);
-      if (!response.ok) {
-        throw new Error('YouTube API request failed');
-      }
-
-      const data = await response.json();
-      const video = data.items?.[0];
-
-      if (video) {
-        const { title, description, tags = [], publishedAt } = video.snippet;
-        const { duration } = video.contentDetails;
-        const { viewCount, likeCount } = video.statistics;
-
-        return cleanText(`
-          Title: ${title}
-          Published: ${new Date(publishedAt).toLocaleDateString()}
-          Duration: ${duration.replace('PT', '').toLowerCase()}
-          Views: ${parseInt(viewCount).toLocaleString()}
-          Likes: ${parseInt(likeCount).toLocaleString()}
-          Description: ${description}
-          ${tags.length ? `Tags: ${tags.join(', ')}` : ''}
-        `);
-      }
+    // Validate API key
+    if (!process.env.YOUTUBE_API_KEY) {
+      throw new Error('YouTube API key is not configured in environment variables');
     }
 
-    // Fallback: Scrape metadata from page
-    const response = await fetch(url);
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    const title = $('meta[property="og:title"]').attr('content') || 
-                 $('title').text();
-    const description = $('meta[property="og:description"]').attr('content') || 
-                       $('meta[name="description"]').attr('content');
-    const uploadDate = $('meta[itemprop="uploadDate"]').attr('content');
+    // Construct API URL
+    const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${process.env.YOUTUBE_API_KEY}`;
     
-    return cleanText(`
+    console.log('API Request URL:', apiUrl);
+
+    // Fetch video data
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    console.log('API Response Status:', response.status);
+
+    // Check response status
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('YouTube API Error Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorBody: errorText
+      });
+      throw new Error(`YouTube API request failed: ${response.status} - ${errorText}`);
+    }
+
+    // Parse JSON response
+    const data = await response.json();
+    console.log('Parsed API Response:', JSON.stringify(data, null, 2));
+
+    // Validate response structure
+    if (!data.items || data.items.length === 0) {
+      throw new Error('No video data found in the API response');
+    }
+
+    // Extract video details
+    const video = data.items[0];
+    const { 
+      title = 'N/A', 
+      description = 'No description', 
+      channelTitle = 'Unknown Channel', 
+      publishedAt, 
+      tags = [] 
+    } = video.snippet || {};
+
+    const { 
+      viewCount = '0', 
+      likeCount = '0', 
+      commentCount = '0' 
+    } = video.statistics || {};
+
+    const duration = video.contentDetails?.duration || 'N/A';
+
+    // Prepare content
+    const content = `
+      YouTube Video Details:
       Title: ${title}
-      ${uploadDate ? `Upload Date: ${new Date(uploadDate).toLocaleDateString()}` : ''}
-      Description: ${description}
-      URL: ${url}
-    `);
+      Channel: ${channelTitle}
+      Published: ${publishedAt ? new Date(publishedAt).toLocaleDateString() : 'N/A'}
+      Duration: ${duration.replace('PT', '').toLowerCase()}
+      Views: ${parseInt(viewCount).toLocaleString()}
+      Likes: ${parseInt(likeCount).toLocaleString()}
+      Comments: ${parseInt(commentCount).toLocaleString()}
+      Description: ${description.slice(0, 500)}...
+      ${tags.length ? `Tags: ${tags.slice(0, 10).join(', ')}` : ''}
+    `;
+
+    // Visualization data
+    const chartData = [
+      { metric: 'Views', value: parseInt(viewCount), color: 'rgba(54, 162, 235, 0.6)' },
+      { metric: 'Likes', value: parseInt(likeCount), color: 'rgba(255, 99, 132, 0.6)' },
+      { metric: 'Comments', value: parseInt(commentCount), color: 'rgba(75, 192, 192, 0.6)' }
+    ];
+
+    return JSON.stringify({
+      content,
+      visualizationData: {
+        type: 'bar',
+        data: chartData
+      }
+    });
 
   } catch (error) {
-    console.error('Video extraction error:', error);
-    return `Failed to extract video content from: ${url}`;
+    console.error('YouTube Video Extraction Failed', {
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      errorStack: error instanceof Error ? error.stack : 'No stack trace'
+    });
+
+    return JSON.stringify({
+      content: `Failed to extract YouTube video content. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      visualizationData: null
+    });
   }
 }
 
-// lib/extractors.ts - update the extractPDF function
 
 
+// Strict interface for PDF Sections
+interface PdfSections {
+  title: string;
+  authors: string;
+  abstract: string;
+  introduction: string;
+  methodology: string;
+  results: string;
+  conclusion: string;
+  keywords: string[];
+  keyFindings: string[];
+}
 
+// Function to detect language
+function detectLanguage(text: string): string {
+  const englishScore = (text.match(/[a-zA-Z]/g) || []).length;
+  const totalChars = text.length;
+  return (englishScore / totalChars) > 0.7 ? 'English' : 'Other';
+}
+
+// Helper to extract key sections
+function extractPdfSections(fullText: string): PdfSections {
+  const defaultSections: PdfSections = {
+    title: '',
+    authors: '',
+    abstract: '',
+    introduction: '',
+    methodology: '',
+    results: '',
+    conclusion: '',
+    keywords: [],
+    keyFindings: []
+  };
+
+  // Regex patterns for section extraction
+  const sectionPatterns = {
+    title: new RegExp(/^(?:Title:|)(.*?)(?=\n|$)/, 'i'),
+    authors: new RegExp(/(?:Author[s]?:|Written by:)\s*(.+?)(?=\n|$)/, 'i'),
+    abstract: new RegExp(/(?:Abstract:|Summary:)\s*(.*?)(?=\n\n|\nIntroduction|\nKeywords)/, 'm'),
+    introduction: new RegExp(/(?:Introduction:)\s*(.*?)(?=\n\n|\nMethodology|\nResults)/, 'm'),
+    methodology: new RegExp(/(?:Methodology:|Method:)\s*(.*?)(?=\n\n|\nResults|\nDiscussion)/, 'm'),
+    results: new RegExp(/(?:Results:)\s*(.*?)(?=\n\n|\nDiscussion|\nConclusion)/, 'm'),
+    conclusion: new RegExp(/(?:Conclusion:)\s*(.*?)(?=\n\n|$)/, 'm'),
+    keywords: new RegExp(/(?:Keywords?:)\s*(.+?)(?=\n|$)/, 'i')
+  };
+
+  // Explicitly typed keys
+  type SectionKey = keyof typeof sectionPatterns;
+
+  // Extract sections using patterns
+  (Object.keys(sectionPatterns) as SectionKey[]).forEach(key => {
+    const pattern = sectionPatterns[key];
+    const match = fullText.match(pattern);
+    
+    if (match && match[1]) {
+      const value = cleanText(match[1]);
+      
+      switch(key) {
+        case 'keywords':
+          defaultSections.keywords = value.split(/[,;]/).map(k => k.trim()).filter(Boolean);
+          break;
+        case 'title':
+          defaultSections.title = value;
+          break;
+        case 'abstract':
+          defaultSections.abstract = value;
+          break;
+        case 'introduction':
+          defaultSections.introduction = value;
+          break;
+        case 'methodology':
+          defaultSections.methodology = value;
+          break;
+        case 'results':
+          defaultSections.results = value;
+          break;
+        case 'conclusion':
+          defaultSections.conclusion = value;
+          break;
+      }
+    }
+  });
+
+  // Extract key findings
+  const findingPatterns = [
+    /([A-Z][^.!?]+(?:demonstrate|show|indicate|reveal)[^.!?]+[.!?])/,
+    /([A-Z][^.!?]+(?:significant|important|crucial)[^.!?]+[.!?])/
+  ];
+
+  findingPatterns.forEach(pattern => {
+    const matches = fullText.match(pattern);
+    if (matches) {
+      defaultSections.keyFindings.push(...matches.slice(0, 3).map(cleanText));
+    }
+  });
+
+  return defaultSections;
+}
+
+// Main PDF extraction function
 export async function extractPDF(url: string): Promise<string> {
   try {
+    // Fetch PDF content
     const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(arrayBuffer);
-    let text = '';
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items
-        .map((item: any) => item.str)
-        .join(' ');
-      text += pageText + '\n';
+    
+    // Check if response is successful
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return text;
+    const arrayBuffer = await response.arrayBuffer();
+    
+    // Use pdf.js to extract text
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    
+    let fullText = '';
+    const maxPages = Math.min(pdf.numPages, 10); // Limit to first 10 pages
+
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      
+      fullText += pageText + '\n\n';
+    }
+
+    // Clean and process full text
+    fullText = cleanText(fullText);
+
+    // Detect language
+    const language = detectLanguage(fullText);
+
+    // Extract sections
+    const sections = extractPdfSections(fullText);
+
+    // Prepare content for response
+    const content = `PDF Analysis:
+
+Title: ${sections.title || 'Not Found'}
+Language: ${language}
+
+Authors: ${sections.authors || 'Not Specified'}
+
+Abstract:
+${truncateText(sections.abstract || '', 500) || 'No abstract available'}
+
+Key Keywords:
+${(sections.keywords || []).join(', ') || 'No keywords found'}
+
+Key Findings:
+${(sections.keyFindings || [])
+    .map((finding, i) => `${i + 1}. ${finding}`)
+    .join('\n') || 'No key findings extracted'}
+
+Methodology Summary:
+${truncateText(sections.methodology || '', 300) || 'Methodology details not clear'}
+
+Conclusion:
+${truncateText(sections.conclusion || '', 300) || 'No specific conclusion extracted'}
+`;
+
+    return JSON.stringify({
+      content,
+      visualizationData: null
+    });
+
   } catch (error) {
     console.error('PDF extraction error:', error);
-    return `Failed to extract PDF content from: ${url}`;
+    return JSON.stringify({
+      content: `Failed to extract PDF content from: ${url}. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      visualizationData: null
+    });
   }
 }
+
 export async function extractCSV(url: string): Promise<string> {
   try {
     const response = await fetch(url);
@@ -177,22 +386,68 @@ export async function extractCSV(url: string): Promise<string> {
       trim: true
     });
     
-    // Convert to readable format
+    // If no records, return error
+    if (!records || records.length === 0) {
+      return `No data found in the CSV file.`;
+    }
+
+    // Identify column types
     const headers = Object.keys(records[0]);
-    const summary = records.slice(0, 10); // First 10 rows
     
-    return `
-      CSV Headers: ${headers.join(', ')}
-      Number of Records: ${records.length}
-      Sample Data (first 10 rows):
-      ${JSON.stringify(summary, null, 2)}
-    `;
+    // Find numeric columns
+    const numericColumns = headers.filter(header => 
+      records.every((record: Record<string, any>) => 
+        record[header] === '' || 
+        !isNaN(Number(record[header]))
+      )
+    );
+
+    // Find potential label column (non-numeric)
+    const labelColumn = headers.find(header => 
+      !numericColumns.includes(header)
+    ) || headers[0];
+
+    // Prepare visualization data
+    const visualizationData = {
+      type: numericColumns.length > 2 ? 'line' : 'bar',
+      data: records.map((record: Record<string, any>) => {
+        const dataPoint: Record<string, any> = {};
+        
+        // Add label
+        if (labelColumn) {
+          dataPoint[labelColumn] = record[labelColumn];
+        }
+        
+        // Add numeric columns
+        numericColumns.forEach(col => {
+          dataPoint[col] = Number(record[col]);
+        });
+        
+        return dataPoint;
+      }).slice(0, 50) // Limit to first 50 rows
+    };
+
+    // Prepare summary content
+    const content = `CSV Data Analysis:
+- Total Records: ${records.length}
+- Columns: ${headers.join(', ')}
+- Numeric Columns: ${numericColumns.join(', ') || 'None'}
+- Label Column: ${labelColumn}
+
+Data Summary:
+${JSON.stringify(records.slice(0, 5), null, 2)}
+`;
+
+    return JSON.stringify({
+      content,
+      visualizationData
+    });
+
   } catch (error) {
     console.error('CSV extraction error:', error);
-    return `Failed to extract CSV content from: ${url}`;
+    return `Failed to extract CSV content from: ${url}. Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
   }
 }
-
 // Add a type for crawled content
 type CrawledContent = {
   url: string;
@@ -299,33 +554,30 @@ export async function extractArticle(url: string): Promise<string> {
 
 export async function extractContent(url: string): Promise<ContentResult> {
   try {
-    // Determine content type
     const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
     const fileType = url.split('.').pop()?.toLowerCase();
     
-    let content = '';
+    let result: ContentResult;
     
     if (isYouTube) {
-      content = await extractVideoContent(url);
+      const videoData = JSON.parse(await extractVideoContent(url));
+      result = {
+        content: videoData.content,
+        visualizationData: videoData.visualizationData
+      };
     } else if (fileType === 'pdf') {
-      content = await extractPDF(url);
+      result = { content: await extractPDF(url) };
     } else if (fileType === 'csv') {
-      content = await extractCSV(url);
+      result = { 
+        content: await extractCSV(url)
+      };
+      result.visualizationData = detectChartableData(result.content) || undefined;
     } else {
-      content = await extractArticle(url);
+      result = { content: await extractArticle(url) };
     }
 
     // Truncate content if too long
-    content = truncateContent(content);
-
-    const result: ContentResult = {
-      content,
-      // Add visualization data for CSV files
-      visualizationData: fileType === 'csv' ? {
-        type: 'line',
-        data: JSON.parse(content)
-      } : undefined
-    };
+    result.content = truncateContent(result.content);
 
     return result;
   } catch (error) {

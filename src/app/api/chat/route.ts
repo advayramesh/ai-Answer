@@ -8,7 +8,7 @@ import { Groq } from "groq-sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Redis } from "@upstash/redis";
 import { truncateText } from "@/lib/utils";
-import { extractPDF, extractCSV, extractArticle } from "@/lib/extractors";
+import { extractPDF, extractCSV, extractArticle , extractVideoContent , detectChartableData } from "@/lib/extractors";
 import type { ContentResult } from "@/types"
 
 // Constants
@@ -64,42 +64,45 @@ async function cacheContent(url: string, content: ContentResult): Promise<void> 
 }
 
 // Content extraction with proper error handling
-async function extractContent(url: string): Promise<ContentResult> {
-  if (redis) {
-    const cachedContent = await getCachedContent(url);
-    if (cachedContent) return cachedContent;
-  }
-
+export async function extractContent(url: string): Promise<ContentResult> {
   try {
+    // Specific check for YouTube URLs with more precise matching
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/)|youtu\.be\/)/;
+    const isYouTube = youtubeRegex.test(url);
+    
     const fileType = url.split('.').pop()?.toLowerCase();
-    let content = '';
-
-    switch(fileType) {
-      case 'pdf':
-        content = await extractPDF(url);
-        break;
-      case 'csv':
-        content = await extractCSV(url);
-        break;
-      default:
-        content = await extractArticle(url);
+    
+    let result: ContentResult;
+    
+    if (isYouTube) {
+      console.log('Extracting YouTube Video:', url);
+      const videoData = JSON.parse(await extractVideoContent(url));
+      result = {
+        content: videoData.content,
+        visualizationData: videoData.visualizationData
+      };
+    } else if (fileType === 'pdf') {
+      result = { content: await extractPDF(url) };
+    } else if (fileType === 'csv') {
+      result = { 
+        content: await extractCSV(url)
+      };
+      result.visualizationData = detectChartableData(result.content) || undefined;
+    } else {
+      result = { content: await extractArticle(url) };
     }
 
-    content = truncateText(content, MAX_CONTENT_LENGTH);
+    // Truncate content if too long
+    result.content = truncateText(result.content, MAX_CONTENT_LENGTH);
 
-    const result: ContentResult = {
-      content,
-      visualizationData: fileType === 'csv' ? await processCSVData(content) : undefined
-    };
-
-    await cacheContent(url, result);
     return result;
   } catch (error) {
     console.error(`Error extracting content from ${url}:`, error);
-    return { content: '' };
+    return { 
+      content: `Failed to extract content from: ${url}. Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
   }
 }
-
 // Process CSV data with proper error handling
 async function processCSVData(content: string) {
   try {
@@ -246,7 +249,13 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { message, urls = [], model = "groq" } = body;
+    const { 
+      message, 
+      urls = [], 
+      model = "groq", 
+      context = "",
+      conversationId 
+    } = body;
 
     // Debug environment variables
     const envDebug = {
@@ -263,55 +272,38 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    // API key validation
-    if (model === "groq") {
-      if (!process.env.GROQ_API_KEY) {
-        return NextResponse.json({ 
-          error: 'Groq API key is not configured',
-          debug: envDebug
-        }, { status: 503 });
-      }
-      if (!process.env.GROQ_API_KEY.startsWith('gsk_')) {
-        return NextResponse.json({ 
-          error: 'Invalid Groq API key format',
-          debug: envDebug
-        }, { status: 503 });
-      }
-    }
-
-    if (model === "gemini") {
-      if (!process.env.GEMINI_API_KEY) {
-        return NextResponse.json({ 
-          error: 'Gemini API key is not configured',
-          debug: envDebug
-        }, { status: 503 });
-      }
-      if (!process.env.GEMINI_API_KEY.startsWith('AIzaSy')) {
-        return NextResponse.json({ 
-          error: 'Invalid Gemini API key format',
-          debug: envDebug
-        }, { status: 503 });
-      }
-    }
-
     // Process the request
     try {
       // Extract content from URLs first
-      const context = await processUrls(urls);
+      const processedUrls = await processUrls(urls);
       
+      // Prepare context
+      const fullContext = [
+        context || '',
+        processedUrls.context
+      ].filter(Boolean).join('\n\n');
+
       // Get AI response
-      const response = await getAIResponse(message, context, model);
+      const response = await getAIResponse(
+        message, 
+        { 
+          context: fullContext, 
+          validSources: processedUrls.validSources, 
+          visualizations: processedUrls.visualizations 
+        }, 
+        model
+      );
       
       // Generate suggestions only if we have a valid response
       const suggestions = response ? 
-        await generateSuggestions(context.context, message, response) : 
+        await generateSuggestions(fullContext, message, response) : 
         [];
 
       return NextResponse.json({
         content: response,
         suggestions,
-        sources: context.validSources,
-        visualizations: context.visualizations,
+        sources: processedUrls.validSources,
+        visualizations: processedUrls.visualizations,
       });
 
     } catch (apiError) {

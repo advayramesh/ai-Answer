@@ -42,34 +42,64 @@ const darkTheme = {
 export default function DataChart({ type, data }: ChartData) {
   if (!data || data.length === 0) return null;
 
-  // Get numeric and label keys from data
-  const numericKeys = data[0] ? Object.keys(data[0]).filter(key => 
-    typeof data[0]?.[key] === 'number'
-  ) : [];
+  // Detect data structure
+  const isGroupedData = data.some(item => 
+    item.category !== undefined || 
+    item.bin !== undefined || 
+    item.count !== undefined
+  );
 
-  const labelKey = data[0] ? Object.keys(data[0]).find(key => 
-    typeof data[0]?.[key] === 'string'
-  ) : numericKeys[0];
+  let labels, datasets;
 
-  const labels = data.map(item => {
-    const label = labelKey ? item[labelKey] : undefined;
-    return label?.toString() || '';
-  });
+  if (isGroupedData) {
+    // For grouped/binned data
+    labels = data.map(item => item.category || item.bin || 'Group');
+    
+    // Find numeric columns
+    const numericColumns = data.length > 0 && data[0] ? Object.keys(data[0])
+      .filter(key => 
+        key !== 'category' && 
+        key !== 'count' && 
+        typeof data[0]?.[key] === 'number'
+      ) 
+      : [];
 
-  // Generate datasets with gradients
-  const datasets = numericKeys.map((key, index) => {
-    const hue = (index * 360) / numericKeys.length;
-    return {
-      label: key.charAt(0).toUpperCase() + key.slice(1), // Capitalize label
-      data: data.map(item => item[key]),
-      borderColor: `hsl(${hue}, 70%, 60%)`,
-      backgroundColor: `hsla(${hue}, 70%, 60%, 0.5)`,
-      borderWidth: 2,
-      tension: 0.4, // Smooth lines
-      pointRadius: 4,
-      pointHoverRadius: 6,
-    };
-  });
+    datasets = numericColumns.length > 0 
+      ? numericColumns.map((column, index) => {
+          const hue = (index * 360) / numericColumns.length;
+          return {
+            label: column,
+            data: data.map(item => item[column]),
+            backgroundColor: `hsla(${hue}, 70%, 60%, 0.6)`,
+            borderColor: `hsl(${hue}, 70%, 60%)`,
+            borderWidth: 2
+          };
+        })
+      : [{
+          label: 'Count',
+          data: data.map(item => item.count || 0),
+          backgroundColor: 'rgba(54, 162, 235, 0.6)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          borderWidth: 2
+        }];
+  } else {
+    // Existing line/bar chart logic
+    const numericKeys = data.length > 0 ? Object.keys(data[0]!)
+      .filter(key => typeof data[0]![key] === 'number')
+      : [];
+
+    labels = data.map((_, index) => index);
+    
+    datasets = numericKeys.map((key, index) => {
+      const hue = (index * 360) / numericKeys.length;
+      return {
+        label: key,
+        data: data.map(item => item[key]),
+        borderColor: `hsl(${hue}, 70%, 60%)`,
+        backgroundColor: `hsla(${hue}, 70%, 60%, 0.5)`
+      };
+    });
+  }
 
   const chartData = {
     labels,
@@ -79,64 +109,23 @@ export default function DataChart({ type, data }: ChartData) {
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    interaction: {
-      mode: 'index' as const,
-      intersect: false,
-    },
     plugins: {
       legend: {
-        position: 'top' as const,
-        labels: {
-          color: darkTheme.color,
-          usePointStyle: true,
-          pointStyle: 'circle',
-          padding: 20,
-        },
-      },
-      title: {
-        display: false,
-      },
-      tooltip: {
-        backgroundColor: 'rgba(17, 24, 39, 0.9)', // gray-900 with opacity
-        titleColor: 'rgb(229, 231, 235)', // text-gray-200
-        bodyColor: 'rgb(229, 231, 235)', // text-gray-200
-        padding: 12,
-        cornerRadius: 8,
-        boxPadding: 6,
+        display: true,
+        position: 'top'
       }
     },
     scales: {
-      x: {
-        grid: {
-          display: false,
-        },
-        ticks: {
-          color: darkTheme.color,
-          maxRotation: 45,
-          minRotation: 45,
-        },
-        border: {
-          color: darkTheme.grid.color,
-        },
-      },
       y: {
-        grid: {
-          color: darkTheme.grid.color,
-        },
-        ticks: {
-          color: darkTheme.color,
-        },
-        border: {
-          color: darkTheme.grid.color,
-        },
-      },
-    },
+        beginAtZero: true
+      }
+    }
   };
 
   const ChartComponent = type === 'line' ? Line : Bar;
 
   return (
-    <div className="relative w-full h-[300px] p-4">
+    <div className="relative w-full h-[400px] p-4">
       <ChartComponent 
         data={chartData} 
         options={options}

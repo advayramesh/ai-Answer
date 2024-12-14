@@ -35,7 +35,6 @@ export default function Home() {
   const timeoutRef = useRef<NodeJS.Timeout>();
   const [sourcesVisible, setSourcesVisible] = useState(true);
 
-  // Load conversations with expiration check
   useEffect(() => {
     const saved = localStorage.getItem('conversations');
     if (saved) {
@@ -50,16 +49,32 @@ export default function Home() {
           })
           .map((conv: any) => ({
             ...conv,
-            createdAt: new Date(conv.createdAt)
+            createdAt: new Date(conv.createdAt),
+            // Ensure the title is generated if not present
+            title: conv.title || generateChatTitle(conv.messages[1]?.content || '')
           }));
-        setConversations(validConversations);
+        
+        // Ensure at least one conversation exists
+        const finalConversations = validConversations.length > 0 
+          ? validConversations 
+          : [currentConversation];
+        
+        setConversations(finalConversations);
+        
+        // Set the first conversation as current if none is selected
+        if (finalConversations.length > 0) {
+          setCurrentConversation(finalConversations[0]);
+        }
       } catch (error) {
         console.error('Error loading conversations:', error);
+        // Fallback to current conversation
+        setConversations([currentConversation]);
       }
     } else {
+      // No saved conversations, use current
       setConversations([currentConversation]);
     }
-  }, [currentConversation]);
+  }, []);
 
   // Save conversations
   useEffect(() => {
@@ -115,12 +130,43 @@ export default function Home() {
         content: "Hello! How can I help you today?"
       }],
       createdAt: new Date(),
-      title: "New Chat"
+      title: generateChatTitle("Hello! How can I help you today?")
     };
+    
+    // Update conversations state
+    setConversations(prev => {
+      // Check if this conversation already exists
+      const exists = prev.some(conv => conv.id === newConv.id);
+      
+      // If not exists, add to conversations
+      const updatedConversations = exists 
+        ? prev 
+        : [newConv, ...prev];
+      
+      // Save to localStorage immediately
+      try {
+        localStorage.setItem('conversations', JSON.stringify(updatedConversations));
+      } catch (error) {
+        console.error('Failed to save conversations:', error);
+      }
+      
+      return updatedConversations;
+    });
+  
+    // Set as current conversation
     setCurrentConversation(newConv);
-    setConversations(prev => [newConv, ...prev]);
+    
+    // Clear suggestions
     setSuggestions([]);
   };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('conversations', JSON.stringify(conversations));
+    } catch (error) {
+      console.error('Failed to save conversations:', error);
+    }
+  }, [conversations]);
 
   const handleSend = async () => {
     if (!message.trim() || isSubmitting) return;
@@ -149,12 +195,21 @@ export default function Home() {
       setCurrentConversation(updatedConv);
       setMessage("");
   
+      // Collect context from previous messages (last 3-4 messages)
+      const contextMessages = updatedConv.messages
+        .slice(-4)
+        .filter(msg => msg.role === "user" || msg.role === "ai")
+        .map(msg => `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`)
+        .join('\n\n');
+  
       const payload = { 
         message,
         urls: extractUrls(message),
         model: selectedModel,
-        conversationId: currentConversation.id
+        conversationId: currentConversation.id,
+        context: contextMessages
       };
+  
       console.log('Sending payload:', payload);
   
       const response = await fetch("/api/chat", {
@@ -175,6 +230,11 @@ export default function Home() {
   
       const data = JSON.parse(responseText);
       console.log('Parsed data:', data);
+  
+      // Add suggestions if available
+      if (data.suggestions && data.suggestions.length > 0) {
+        setSuggestions(data.suggestions);
+      }
       
       const finalConv = {
         ...updatedConv,
@@ -192,6 +252,15 @@ export default function Home() {
   
       console.log('Updating conversation with:', finalConv);
       setCurrentConversation(finalConv);
+  
+      // Update conversation title if it's a new chat
+      if (currentConversation.title === "New Chat") {
+        const newTitle = generateChatTitle(data.content);
+        setCurrentConversation(prev => ({
+          ...prev,
+          title: newTitle
+        }));
+      }
   
     } catch (error) {
       console.error("Error in handleSend:", error);
@@ -424,80 +493,92 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Suggestions */}
-          {suggestions.length > 0 && (
-            <div className="fixed bottom-[120px] w-full bg-gray-900/60 backdrop-blur-xl py-3 z-20
-    border-t border-white/5 shadow-lg shadow-black/30">
-              <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-2 px-4">
-                {suggestions.map((suggestion, index) => (
-                  <div key={index} className="group relative">
-                    <button
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      className="px-4 py-2 bg-gray-800/30 hover:bg-gray-700/50 rounded-full text-sm text-gray-200
-              transition-all hover:scale-[1.02] active:scale-[0.98] border border-white/10
-              backdrop-blur-sm hover:border-cyan-500/30 shadow-lg shadow-black/20
-              hover:shadow-cyan-900/20"
-                    >
-                      {suggestion.length > 40 ? suggestion.substring(0, 37) + '...' : suggestion}
-                    </button>
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 invisible 
-            group-hover:visible transition-all opacity-0 group-hover:opacity-100 z-50">
-                      <div className="bg-gray-900 px-4 py-2 rounded-lg shadow-xl border border-gray-700
-              text-sm text-gray-200 max-w-md whitespace-normal">
-                        {suggestion}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Input Area */}
-          <div className="fixed bottom-0 w-full bg-gray-900/40 backdrop-blur-xl border-t border-white/5 p-6
-            shadow-[0_-20px_30px_-10px_rgba(0,0,0,0.3)]">
-            <div className="max-w-5xl mx-auto px-4">
-              <div className="flex gap-3 items-end">
-                <textarea
-                  ref={inputRef}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask a question or paste a URL to analyze..."
-                  className="flex-1 rounded-xl border border-white/10 bg-gray-900/50 backdrop-blur-sm px-6 py-4
-                    text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-transparent
-                    placeholder-gray-400 min-h-[52px] max-h-32 resize-none shadow-inner shadow-black/20"
-                  rows={1}
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={isLoading || isSubmitting || !message.trim()}
-                  className="bg-cyan-600/80 hover:bg-cyan-700/80 text-white px-6 py-3 rounded-xl 
-        transition-all disabled:bg-gray-700/50 disabled:opacity-50 disabled:cursor-not-allowed 
-         h-[52px] flex items-center gap-2 backdrop-blur-sm shadow-lg shadow-cyan-900/30
-            hover:shadow-cyan-900/50 hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  {isLoading || isSubmitting ? (
-                    <>
-                      <Loader2 size={20} className="animate-spin" />
-                      Sending
-                    </>
-                  ) : (
-                    <>
-                      Send
-                      <ChevronRight size={20} />
-                    </>
-                  )}
-                </button>
-              </div>
-              <div className="mt-2 text-sm text-gray-400 text-center">
-                {!message.trim() && (
-                  "Press Enter to send, Shift+Enter for new line"
-                )}
-              </div>
+              {/* Suggestions */}
+{suggestions.length > 0 && (
+  <div className="fixed bottom-[120px] w-full bg-gradient-to-b from-gray-900/70 to-gray-900/90 backdrop-blur-xl py-4 z-20 
+    border-t border-white/10 shadow-2xl shadow-black/40 animate-slideUp">
+    <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-3 px-16 lg:px-24">
+      {suggestions.slice(0, 3).map((suggestion, index) => (
+        <div 
+          key={index} 
+          className="group relative transform transition-all duration-300 hover:scale-105"
+        >
+          <button
+            onClick={() => handleSuggestionClick(suggestion)}
+            className="px-5 py-2.5 bg-gray-800/40 hover:bg-cyan-900/30 
+              rounded-full text-sm text-gray-300 hover:text-white
+              transition-all border border-white/10 hover:border-cyan-500/30
+              backdrop-blur-sm shadow-lg shadow-black/20 hover:shadow-cyan-500/20
+              flex items-center justify-center gap-2 group"
+          >
+            <span className="truncate max-w-[200px]">
+              {suggestion.length > 40 ? suggestion.substring(0, 37) + '...' : suggestion}
+            </span>
+            <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-cyan-400">
+              ↗
+            </span>
+          </button>
+          <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 -translate-y-2 
+            scale-90 opacity-0 group-hover:scale-100 group-hover:opacity-100 
+            transition-all duration-300 ease-out pointer-events-none">
+            <div className="bg-gray-900/90 border border-white/10 px-4 py-2.5 
+              rounded-xl shadow-2xl backdrop-blur-xl 
+              text-sm text-gray-200 max-w-xs whitespace-normal
+              animate-tooltipAppear">
+              {suggestion}
             </div>
           </div>
         </div>
+      ))}
+    </div>
+  </div>
+)}
+
+        {/* Input Area */}
+<div className="fixed bottom-0 w-full bg-gray-900/40 backdrop-blur-xl border-t border-white/5 p-6
+  shadow-[0_-20px_30px_-10px_rgba(0,0,0,0.3)]">
+  <div className="max-w-5xl mx-auto px-4 md:px-16 lg:px-24">
+    <div className="flex gap-3 items-end">
+      <textarea
+        ref={inputRef}
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Ask a question or paste a URL to analyze..."
+        className="flex-1 rounded-xl border border-white/10 bg-gray-900/50 backdrop-blur-sm px-6 py-4
+          text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-transparent
+          placeholder-gray-400 min-h-[52px] max-h-32 resize-none shadow-inner shadow-black/20"
+        rows={1}
+      />
+      <button
+        onClick={handleSend}
+        disabled={isLoading || isSubmitting || !message.trim()}
+        className="bg-cyan-600/80 hover:bg-cyan-700/80 text-white px-6 py-3 rounded-xl 
+          transition-all disabled:bg-gray-700/50 disabled:opacity-50 disabled:cursor-not-allowed 
+          h-[52px] flex items-center gap-2 backdrop-blur-sm shadow-lg shadow-cyan-900/30
+          hover:shadow-cyan-900/50 hover:scale-[1.02] active:scale-[0.98]"
+      >
+        {isLoading || isSubmitting ? (
+          <>
+            <Loader2 size={20} className="animate-spin" />
+            Sending
+          </>
+        ) : (
+          <>
+            Send
+            <ChevronRight size={20} />
+          </>
+        )}
+      </button>
+    </div>
+    <div className="mt-2 text-sm text-gray-400 text-center">
+      {!message.trim() && (
+        "Press Enter to send, Shift+Enter for new line"
+      )}
+    </div>
+  </div>
+</div>
+</div>
 
         {/* Right Sidebar for Current Response's Embedded Content */}
 {(currentConversation.messages?.[currentConversation.messages.length - 1]?.sources?.length ?? 0) > 0 && (
