@@ -248,63 +248,94 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { message, urls = [], model = "groq" } = body;
 
-    // More detailed environment debugging
-    console.log('Detailed environment check:');
-    console.log('Environment variables present:', {
-      GROQ_KEY_EXISTS: !!process.env.GROQ_API_KEY,
-      GROQ_KEY_LENGTH: process.env.GROQ_API_KEY?.length || 0,
-      GROQ_KEY_PREFIX: process.env.GROQ_API_KEY?.substring(0, 4) || 'none',
-      GEMINI_KEY_EXISTS: !!process.env.GEMINI_API_KEY,
-      GEMINI_KEY_LENGTH: process.env.GEMINI_API_KEY?.length || 0,
-      GEMINI_KEY_PREFIX: process.env.GEMINI_API_KEY?.substring(0, 6) || 'none',
-      SELECTED_MODEL: model
-    });
+    // Debug environment variables
+    const envDebug = {
+      groq_key: process.env.GROQ_API_KEY?.substring(0, 4) || 'none',
+      gemini_key: process.env.GEMINI_API_KEY?.substring(0, 6) || 'none',
+      model: model
+    };
+    console.log('Environment debug:', envDebug);
 
+    // Input validation
     if (!message?.trim()) {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
-    }
-
-    try {
-      // Test direct API key validation before any other operations
-      if (model === "groq") {
-        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' });
-        // Test the API key with a minimal request
-        await groq.chat.completions.create({
-          messages: [{ role: "user", content: "test" }],
-          model: "mixtral-8x7b-32768",
-          max_tokens: 10,
-        });
-        console.log('Groq API key validated successfully');
-      }
-
-      if (model === "gemini") {
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-        // Test the API key with a minimal request
-        await model.generateContent("test");
-        console.log('Gemini API key validated successfully');
-      }
-    } catch (apiError) {
-      console.error('API key validation error:', apiError);
       return NextResponse.json({ 
-        error: `API key validation failed: ${apiError instanceof Error ? apiError.message : 'Unknown error'}` 
-      }, { status: 503 });
+        error: 'Message is required' 
+      }, { status: 400 });
     }
 
-    const context = await processUrls(urls);
-    const response = await getAIResponse(message, context, model);
-    const suggestions = await generateSuggestions(context.context, message, response);
+    // API key validation
+    if (model === "groq") {
+      if (!process.env.GROQ_API_KEY) {
+        return NextResponse.json({ 
+          error: 'Groq API key is not configured',
+          debug: envDebug
+        }, { status: 503 });
+      }
+      if (!process.env.GROQ_API_KEY.startsWith('gsk_')) {
+        return NextResponse.json({ 
+          error: 'Invalid Groq API key format',
+          debug: envDebug
+        }, { status: 503 });
+      }
+    }
 
-    return NextResponse.json({
-      content: response,
-      suggestions,
-      sources: context.validSources,
-      visualizations: context.visualizations,
-    });
+    if (model === "gemini") {
+      if (!process.env.GEMINI_API_KEY) {
+        return NextResponse.json({ 
+          error: 'Gemini API key is not configured',
+          debug: envDebug
+        }, { status: 503 });
+      }
+      if (!process.env.GEMINI_API_KEY.startsWith('AIzaSy')) {
+        return NextResponse.json({ 
+          error: 'Invalid Gemini API key format',
+          debug: envDebug
+        }, { status: 503 });
+      }
+    }
+
+    // Process the request
+    try {
+      // Extract content from URLs first
+      const context = await processUrls(urls);
+      
+      // Get AI response
+      const response = await getAIResponse(message, context, model);
+      
+      // Generate suggestions only if we have a valid response
+      const suggestions = response ? 
+        await generateSuggestions(context.context, message, response) : 
+        [];
+
+      return NextResponse.json({
+        content: response,
+        suggestions,
+        sources: context.validSources,
+        visualizations: context.visualizations,
+      });
+
+    } catch (apiError) {
+      console.error('API Error:', apiError);
+      
+      // Check for specific API errors
+      if (apiError instanceof Error && apiError.message.includes('Invalid API Key')) {
+        return NextResponse.json({ 
+          error: 'API key validation failed. Please check your configuration.',
+          debug: envDebug
+        }, { status: 401 });
+      }
+
+      throw apiError; // Re-throw for general error handling
+    }
+
   } catch (error) {
     console.error('POST error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
-    console.error('Error details:', errorMessage);
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    
+    // Detailed error response
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Internal Server Error',
+      timestamp: new Date().toISOString(),
+      requestId: Math.random().toString(36).substring(7)
+    }, { status: 500 });
   }
 }

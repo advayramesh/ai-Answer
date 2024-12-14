@@ -33,6 +33,7 @@ export default function Home() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout>();
+  const [sourcesVisible, setSourcesVisible] = useState(true);
 
   // Load conversations with expiration check
   useEffect(() => {
@@ -315,28 +316,39 @@ export default function Home() {
                 </span>
               </h1>
               <div className="flex items-center gap-4">
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value as "groq" | "gemini")}
-                  className="bg-gray-800/50 text-white px-4 py-2 rounded-xl border border-white/10
-                    hover:bg-gray-700/50 transition-all focus:ring-2 focus:ring-cyan-500/50 outline-none"
-                >
-                  <option value="groq">Groq</option>
-                  <option value="gemini">Gemini</option>
-                </select>
-                <button
-                  onClick={shareConversation}
-                  disabled={shareLoading}
-                  className="text-white hover:text-cyan-400 p-2 hover:bg-gray-700 rounded-lg transition-all disabled:opacity-50"
-                  title="Share conversation"
-                >
-                  {shareLoading ? (
-                    <Loader2 size={20} className="animate-spin" />
-                  ) : (
-                    <Share2 size={20} />
-                  )}
-                </button>
-              </div>
+  <select
+    value={selectedModel}
+    onChange={(e) => setSelectedModel(e.target.value as "groq" | "gemini")}
+    className="bg-gray-800/50 text-white px-4 py-2 rounded-xl border border-white/10
+      hover:bg-gray-700/50 transition-all focus:ring-2 focus:ring-cyan-500/50 outline-none"
+  >
+    <option value="groq">Groq</option>
+    <option value="gemini">Gemini</option>
+  </select>
+  {(currentConversation.messages?.[currentConversation.messages.length - 1]?.sources?.length ?? 0) > 0 && (
+    <button
+      onClick={() => setSourcesVisible(!sourcesVisible)}
+      className="text-gray-400 hover:text-white px-3 py-2 rounded-lg hover:bg-gray-700/50 
+        transition-all flex items-center gap-2 text-sm border border-white/10"
+    >
+      <MessageSquare size={16} />
+      {sourcesVisible ? 'Hide Sources' : 'Show Sources'}
+    </button>
+  )}
+  <button
+    onClick={shareConversation}
+    disabled={shareLoading}
+    className="text-white hover:text-cyan-400 p-2 hover:bg-gray-700 rounded-lg 
+      transition-all disabled:opacity-50"
+    title="Share conversation"
+  >
+    {shareLoading ? (
+      <Loader2 size={20} className="animate-spin" />
+    ) : (
+      <Share2 size={20} />
+    )}
+  </button>
+</div>
             </div>
           </div>
 
@@ -488,28 +500,60 @@ export default function Home() {
         </div>
 
         {/* Right Sidebar for Current Response's Embedded Content */}
-        {currentConversation.messages[currentConversation.messages.length - 1]?.sources?.length && (
-          <div className="w-[500px] border-l border-gray-700 bg-gray-800 overflow-y-auto">
-            {currentConversation.messages[currentConversation.messages.length - 1]?.sources?.map((source, sourceIdx) => (
-              <div key={sourceIdx} className="p-4 border-b border-gray-700">
-                <h3 className="text-sm text-gray-400 mb-2">Source {sourceIdx + 1}</h3>
-                {source.endsWith('.pdf') ? (
-                  <iframe
-                    src={`${source}#view=FitH`}
-                    className="w-full h-[600px] rounded-lg border border-gray-700"
-                    title={`Source ${sourceIdx + 1}`}
-                  />
-                ) : (
-                  <iframe
-                    src={source}
-                    className="w-full h-[600px] rounded-lg border border-gray-700"
-                    title={`Source ${sourceIdx + 1}`}
-                  />
-                )}
-              </div>
-            ))}
+{(currentConversation.messages?.[currentConversation.messages.length - 1]?.sources?.length ?? 0) > 0 && (
+  <div className={`fixed right-0 top-0 h-screen w-[500px] bg-gray-900/95 backdrop-blur-xl border-l border-white/10 
+    transform transition-all duration-300 ease-in-out ${sourcesVisible ? 'translate-x-0' : 'translate-x-full'}`}>
+    <div className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur-xl p-4 border-b border-white/10">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <MessageSquare size={18} />
+          Referenced Sources
+        </h2>
+        <button
+          onClick={() => setSourcesVisible(false)}
+          className="p-2 hover:bg-gray-700/50 rounded-lg transition-all text-gray-400 hover:text-white"
+          title="Close sources"
+        >
+          <X size={20} />
+        </button>
+      </div>
+    </div>
+    <div className="h-[calc(100vh-70px)] overflow-y-auto">
+      {currentConversation.messages[currentConversation.messages.length - 1]?.sources?.map((source, sourceIdx) => (
+        <div key={sourceIdx} className="p-4 border-b border-white/10">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-white">Source {sourceIdx + 1}</h3>
+            <a 
+              href={source}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+            >
+              {new URL(source).hostname}
+            </a>
           </div>
-        )}
+          <div className="rounded-xl overflow-hidden border border-white/10">
+            {source.endsWith('.pdf') ? (
+              <iframe
+                src={`${source}#view=FitH`}
+                className="w-full h-[600px]"
+                title={`Source ${sourceIdx + 1}`}
+                sandbox="allow-same-origin allow-scripts"
+              />
+            ) : (
+              <iframe
+                src={source}
+                className="w-full h-[600px]"
+                title={`Source ${sourceIdx + 1}`}
+                sandbox="allow-same-origin allow-scripts"
+              />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
       </div>
     </div>
   );
